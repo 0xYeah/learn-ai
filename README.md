@@ -23,6 +23,6 @@ Learning AI Memo
 |名称|简要|更新时间|
 |:-:|:-:|:-:|
 |[GoClaw VS OpenFang](./ai_tools/goclaw-vs-openfang.md)||2026-03-09|
-|[OopenClaw VS GoClaw VS OpenFang](./ai_tools/goclaw-vs-openfang.md)||2026-03-09|
+|[OopenClaw VS GoClaw VS OpenFang](./ai_tools/openclaw-vs-goclaw-vs-openfang.md)||2026-03-09|
 
 ## 3.1. sdfs
