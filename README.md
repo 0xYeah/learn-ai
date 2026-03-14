@@ -3,8 +3,8 @@
 - [1. 读源码备忘](#1-读源码备忘)
 - [2. 对比](#2-对比)
   - [2.1. sdfs](#21-sdfs)
-- [工具](#工具)
-  - [everything-claude-code(ECC-Tool)](#everything-claude-codeecc-tool)
+- [3. 工具](#3-工具)
+  - [3.1. everything-claude-code(ECC-Tool)](#31-everything-claude-codeecc-tool)
 
 <!-- /TOC -->
 
@@ -26,7 +26,7 @@ Learning AI Memo
 
 ## 2.1. sdfs
 
-# 工具
-## everything-claude-code(ECC-Tool)
+# 3. 工具
+## 3.1. everything-claude-code(ECC-Tool)
 > 基于Claude code 的万能开发插件。
 * [ECC-Tool](./ai_tools/everything-claude-code/ecc.md)
