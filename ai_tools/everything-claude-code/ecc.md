@@ -33,11 +33,15 @@
 git clone https://github.com/affaan-m/everything-claude-code.git
 
 # 复制规则（通用 + 语言特定）
-cp -r everything-claude-code/rules/common/* ~/.claude/rules/
-cp -r everything-claude-code/rules/typescript/* ~/.claude/rules/   # 选择你的技术栈
-cp -r everything-claude-code/rules/python/* ~/.claude/rules/
-cp -r everything-claude-code/rules/golang/* ~/.claude/rules/
-cp -r everything-claude-code/rules/perl/* ~/.claude/rules/
+cp -r everything-claude-code/rules/common ~/.claude/rules/
+cp -r everything-claude-code/rules/typescript ~/.claude/rules/   
+
+# 选择你的技术栈
+cp -r everything-claude-code/rules/python ~/.claude/rules/
+cp -r everything-claude-code/rules/golang ~/.claude/rules/
+cp -r everything-claude-code/rules/perl ~/.claude/rules/
+cp -r everything-claude-code/rules/perl ~/.claude/rules/
+cp -r everything-claude-code/rules/perl ~/.claude/rules/
 ```
 
 
