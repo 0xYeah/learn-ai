@@ -3,9 +3,12 @@
 # DGX Spark: vLLM + vllm-playground 一键安装 / 幂等修复脚本
 #
 # 用法:
-#   bash install.sh            # 正常安装,跳过已完成的步骤
-#   bash install.sh --force    # 强制重装两个 venv
-#   bash install.sh --status   # 只检查当前状态,不做任何改动
+#   bash install_dgx-spark_vllm_vllm-playground.sh            # 正常安装,跳过已完成的步骤
+#   bash install_dgx-spark_vllm_vllm-playground.sh --force    # 强制重装两个 venv
+#   bash install_dgx-spark_vllm_vllm-playground.sh --status   # 只检查当前状态,不做任何改动
+#
+# DGX Spark 系统是 CUDA 13,本脚本用 vllm 官方 cu130 wheel(0.19.0+),
+# 配套 PyTorch cu130 wheel,不需要任何 LD_LIBRARY_PATH workaround。
 #
 
 set -euo pipefail
@@ -19,7 +22,6 @@ VLLM_VENV="${RUN_HOME}/.vllm-env"
 PLAYGROUND_VENV="${RUN_HOME}/.vllm-playground-env"
 
 OPT_DIR="/opt/vllm"
-LOG_DIR="${OPT_DIR}/logs"
 HF_CACHE="${OPT_DIR}/hf-cache"
 
 VLLM_CONF="${VLLM_VENV}/vllm.conf"
@@ -34,11 +36,16 @@ PLAYGROUND_PORT=7860
 INSTALL_LOG="${RUN_HOME}/.vllm-install.log"
 
 # 默认模型(首次创建 vllm.conf 时用,之后不会覆盖)
-DEFAULT_MODEL="Qwen/Qwen3-14B-FP8"
-DEFAULT_SERVED_NAME="qwen3-14b"
+DEFAULT_MODEL="KyleHessling1/Qwopus3.5-27B-v3-FP8-vllm-ready"
+DEFAULT_SERVED_NAME="qwopus3.5-27b-fp8"
 
 # 国内 PyPI 镜像(留空则用默认源)
 PYPI_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple"
+
+# vllm cu130 wheel index(DGX Spark CUDA 13 必需)
+VLLM_VERSION="0.19.0"
+VLLM_WHEELS_INDEX="https://wheels.vllm.ai/${VLLM_VERSION}/cu130"
+TORCH_INDEX="https://download.pytorch.org/whl/cu130"
 
 # ==================== 颜色输出 ====================
 if [[ -t 1 ]]; then
@@ -62,7 +69,7 @@ for arg in "$@"; do
         --force)   FORCE=1 ;;
         --status)  STATUS_ONLY=1 ;;
         -h|--help)
-            sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *) err "未知参数: ${arg}"; exit 1 ;;
@@ -88,8 +95,9 @@ print_header() {
     echo " 用户:          ${RUN_USER}  (home: ${RUN_HOME})"
     echo " vLLM venv:     ${VLLM_VENV}"
     echo " Playground:    ${PLAYGROUND_VENV}"
-    echo " 日志:          ${LOG_DIR}"
     echo " HF cache:      ${HF_CACHE}"
+    echo " vLLM 版本:     ${VLLM_VERSION} (cu130)"
+    echo " 日志:          journald (journalctl -u vllm.service -f)"
     if [[ ${FORCE} -eq 1 ]]; then
         echo " 模式:          ${C_YLW}--force(强制重装 venv)${C_RST}"
     fi
@@ -117,6 +125,17 @@ check_prereqs() {
     fi
     ok "nvidia-smi / curl / python3.12 都在"
 
+    # 确认系统 CUDA 是 13.x
+    if command -v nvcc >/dev/null 2>&1; then
+        local cuda_ver
+        cuda_ver="$(nvcc --version | grep -oP 'release \K[0-9]+\.[0-9]+' || echo 'unknown')"
+        if [[ "${cuda_ver}" == 13.* ]]; then
+            ok "系统 CUDA: ${cuda_ver}(匹配 cu130 wheel)"
+        else
+            warn "系统 CUDA: ${cuda_ver}(脚本默认使用 cu130 wheel,可能不匹配)"
+        fi
+    fi
+
     # uv
     if ! command -v uv >/dev/null 2>&1 && [[ ! -x "${RUN_HOME}/.local/bin/uv" ]]; then
         if [[ ${STATUS_ONLY} -eq 1 ]]; then
@@ -127,7 +146,6 @@ check_prereqs() {
         curl -LsSf https://astral.sh/uv/install.sh | sh
     fi
 
-    # 确保 uv 在 PATH(从 ~/.local/bin 取)
     export PATH="${RUN_HOME}/.local/bin:${PATH}"
     if ! command -v uv >/dev/null 2>&1; then
         err "uv 安装后仍不可用,检查 PATH"
@@ -137,21 +155,21 @@ check_prereqs() {
 }
 
 ensure_opt_dirs() {
-    log "确保 ${OPT_DIR} 目录存在"
-    if [[ -d "${LOG_DIR}" && -d "${HF_CACHE}" ]]; then
+    log "确保 ${HF_CACHE} 目录存在"
+    if [[ -d "${HF_CACHE}" ]]; then
         local owner
         owner="$(stat -c '%U' "${OPT_DIR}")"
         if [[ "${owner}" == "${RUN_USER}" ]]; then
-            skip "${OPT_DIR}"
+            skip "${HF_CACHE}"
             return
         fi
     fi
 
-    [[ ${STATUS_ONLY} -eq 1 ]] && { warn "${OPT_DIR} 未就绪"; return; }
+    [[ ${STATUS_ONLY} -eq 1 ]] && { warn "${HF_CACHE} 未就绪"; return; }
 
-    need_sudo mkdir -p "${LOG_DIR}" "${HF_CACHE}"
+    need_sudo mkdir -p "${HF_CACHE}"
     need_sudo chown -R "${RUN_USER}:${RUN_GROUP}" "${OPT_DIR}"
-    ok "${OPT_DIR} 就绪"
+    ok "${HF_CACHE} 就绪"
 }
 
 venv_has_package() {
@@ -167,39 +185,122 @@ uv_pip_install() {
     if [[ -n "${PYPI_MIRROR}" ]]; then
         args+=(--index-url "${PYPI_MIRROR}")
     fi
-    # 同时输出到终端和日志
     VIRTUAL_ENV="${venv}" uv pip install "${args[@]}" "$@" 2>&1 | tee -a "${INSTALL_LOG}"
     return "${PIPESTATUS[0]}"
 }
 
-install_venv() {
-    local venv="$1" pkg="$2" label="$3"
+# 安装 vllm 及配套 cu130 torch
+uv_pip_install_vllm_cu130() {
+    local venv="$1"
+    log "安装 vllm ${VLLM_VERSION} (cu130) 到 ${venv}"
+    log "vllm wheel index: ${VLLM_WHEELS_INDEX}"
+    log "torch wheel index: ${TORCH_INDEX}"
 
-    log "检查 ${label} (${venv})"
-
-    if [[ ${FORCE} -eq 1 && -d "${venv}" ]]; then
-        warn "--force 模式,删除旧 venv: ${venv}"
-        rm -rf "${venv}"
+    local args=()
+    if [[ -n "${PYPI_MIRROR}" ]]; then
+        args+=(--index-url "${PYPI_MIRROR}")
     fi
 
-    if venv_has_package "${venv}" "${pkg}"; then
+    # 优先尝试 --torch-backend=auto(uv 0.5+),失败 fallback 到双 extra-index 写法
+    if VIRTUAL_ENV="${venv}" uv pip install "${args[@]}" \
+            vllm \
+            --torch-backend=auto \
+            --extra-index-url "${VLLM_WHEELS_INDEX}" \
+            2>&1 | tee -a "${INSTALL_LOG}"; then
+        return 0
+    fi
+
+    warn "--torch-backend=auto 失败(uv 版本可能过旧),改用双 extra-index 写法"
+
+    VIRTUAL_ENV="${venv}" uv pip install "${args[@]}" \
+        vllm \
+        --extra-index-url "${VLLM_WHEELS_INDEX}" \
+        --extra-index-url "${TORCH_INDEX}" \
+        --index-strategy unsafe-best-match \
+        2>&1 | tee -a "${INSTALL_LOG}"
+    return "${PIPESTATUS[0]}"
+}
+
+install_vllm_venv() {
+    log "检查 vLLM (${VLLM_VENV})"
+
+    if [[ ${FORCE} -eq 1 && -d "${VLLM_VENV}" ]]; then
+        warn "--force 模式,删除旧 venv: ${VLLM_VENV}"
+        rm -rf "${VLLM_VENV}"
+    fi
+
+    if venv_has_package "${VLLM_VENV}" "vllm"; then
+        local ver torch_cuda
+        ver="$("${VLLM_VENV}/bin/python" -c "import importlib.metadata; print(importlib.metadata.version('vllm'))")"
+        torch_cuda="$("${VLLM_VENV}/bin/python" -c "import torch; print(torch.version.cuda)" 2>/dev/null || echo '?')"
+
+        if [[ "${torch_cuda}" == 13.* ]]; then
+            skip "vLLM 已安装 (vllm ${ver}, torch cuda ${torch_cuda})"
+            return
+        else
+            warn "vLLM 已装但 torch cuda 是 ${torch_cuda}(期望 13.x),需重装"
+            [[ ${STATUS_ONLY} -eq 1 ]] && return
+            log "卸载 cu12 残留"
+            VIRTUAL_ENV="${VLLM_VENV}" uv pip uninstall vllm torch torchvision torchaudio 2>&1 | tee -a "${INSTALL_LOG}" || true
+        fi
+    fi
+
+    [[ ${STATUS_ONLY} -eq 1 ]] && { warn "vLLM 未安装"; return; }
+
+    if [[ ! -d "${VLLM_VENV}" ]]; then
+        log "创建 venv: ${VLLM_VENV}"
+        uv venv --python 3.12 "${VLLM_VENV}"
+    fi
+
+    uv_pip_install_vllm_cu130 "${VLLM_VENV}"
+
+    # 验证
+    local torch_cuda
+    torch_cuda="$("${VLLM_VENV}/bin/python" -c "import torch; print(torch.version.cuda)" 2>/dev/null || echo '?')"
+    if [[ "${torch_cuda}" == 13.* ]]; then
+        ok "vLLM 安装完成,torch cuda ${torch_cuda}"
+    else
+        err "torch cuda 是 ${torch_cuda},不是 13.x,安装异常"
+        return 1
+    fi
+}
+
+install_hf_transfer() {
+    if venv_has_package "${VLLM_VENV}" "hf-transfer"; then
+        skip "hf_transfer 已安装"
+        return
+    fi
+    [[ ${STATUS_ONLY} -eq 1 ]] && { warn "hf_transfer 未安装"; return; }
+    log "安装 hf_transfer(下载加速)"
+    uv_pip_install "${VLLM_VENV}" "hf_transfer"
+}
+
+install_playground_venv() {
+    log "检查 vllm-playground (${PLAYGROUND_VENV})"
+
+    if [[ ${FORCE} -eq 1 && -d "${PLAYGROUND_VENV}" ]]; then
+        warn "--force 模式,删除旧 venv: ${PLAYGROUND_VENV}"
+        rm -rf "${PLAYGROUND_VENV}"
+    fi
+
+    if venv_has_package "${PLAYGROUND_VENV}" "vllm-playground"; then
         local ver
-        ver="$("${venv}/bin/python" -c "import importlib.metadata; print(importlib.metadata.version('${pkg}'))")"
-        skip "${label} 已安装 (${pkg} ${ver})"
+        ver="$("${PLAYGROUND_VENV}/bin/python" -c "import importlib.metadata; print(importlib.metadata.version('vllm-playground'))")"
+        skip "vllm-playground 已安装 (${ver})"
         return
     fi
 
-    [[ ${STATUS_ONLY} -eq 1 ]] && { warn "${label} 未安装"; return; }
+    [[ ${STATUS_ONLY} -eq 1 ]] && { warn "vllm-playground 未安装"; return; }
 
-    if [[ ! -d "${venv}" ]]; then
-        log "创建 venv: ${venv}"
-        uv venv --python 3.12 "${venv}"
+    if [[ ! -d "${PLAYGROUND_VENV}" ]]; then
+        log "创建 venv: ${PLAYGROUND_VENV}"
+        uv venv --python 3.12 "${PLAYGROUND_VENV}"
     fi
 
-    log "安装 ${pkg} 到 ${venv}(可能需要几分钟)"
-    uv_pip_install "${venv}" "${pkg}"
+    log "安装 vllm-playground"
+    uv_pip_install "${PLAYGROUND_VENV}" "vllm-playground"
 
-    ok "${label} 安装完成"
+    ok "vllm-playground 安装完成"
 }
 
 write_vllm_conf() {
@@ -221,11 +322,11 @@ VLLM_HOST=0.0.0.0
 VLLM_PORT=8000
 
 # ---- 运行参数 ----
-MAX_MODEL_LEN=32768
-GPU_MEMORY_UTILIZATION=0.90
+MAX_MODEL_LEN=131072
+GPU_MEMORY_UTILIZATION=0.92
 
 # 额外 flag,空格分隔
-EXTRA_FLAGS=""
+EXTRA_FLAGS="--dtype bfloat16 --trust-remote-code --reasoning-parser qwen3 --enable-prefix-caching"
 
 # ---- 鉴权(可选)----
 VLLM_API_KEY=
@@ -234,6 +335,7 @@ VLLM_API_KEY=
 HF_TOKEN=
 HF_HOME=${HF_CACHE}
 HF_ENDPOINT=https://hf-mirror.com
+HF_HUB_ENABLE_HF_TRANSFER=1
 EOF
     chmod 600 "${VLLM_CONF}"
     ok "${VLLM_CONF}"
@@ -256,9 +358,13 @@ VENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${VENV_DIR}/vllm.conf"
 source "${VENV_DIR}/bin/activate"
 
+# vllm 用 cu130 wheel,torch 也是 cu130,系统 CUDA 也是 13,
+# 不需要任何 LD_LIBRARY_PATH workaround
+
 export HF_HOME
 export HF_ENDPOINT
 [[ -n "${HF_TOKEN}" ]] && export HF_TOKEN
+[[ -n "${HF_HUB_ENABLE_HF_TRANSFER:-}" ]] && export HF_HUB_ENABLE_HF_TRANSFER
 
 ARGS=(
     "${VLLM_MODEL}"
@@ -302,6 +408,7 @@ write_systemd_unit() {
 setup_systemd() {
     local vllm_unit_content pg_unit_content changed=0
 
+    # 不写 StandardOutput/StandardError,日志全交给 journald
     vllm_unit_content="[Unit]
 Description=vLLM OpenAI-compatible server
 After=network-online.target
@@ -316,8 +423,6 @@ TimeoutStartSec=1800
 Restart=on-failure
 RestartSec=10
 ExecStart=${VLLM_START}
-StandardOutput=append:${LOG_DIR}/vllm.log
-StandardError=append:${LOG_DIR}/vllm.err.log
 OOMScoreAdjust=-500
 
 [Install]
@@ -335,9 +440,7 @@ Group=${RUN_GROUP}
 Environment=HOME=${RUN_HOME}
 Restart=on-failure
 RestartSec=10
-ExecStart=/bin/bash -lc 'source ${PLAYGROUND_VENV}/bin/activate && exec vllm-playground --port ${PLAYGROUND_PORT}'
-StandardOutput=append:${LOG_DIR}/playground.log
-StandardError=append:${LOG_DIR}/playground.err.log
+ExecStart=/bin/bash -c 'source ${PLAYGROUND_VENV}/bin/activate && exec vllm-playground --port ${PLAYGROUND_PORT}'
 
 [Install]
 WantedBy=multi-user.target"
@@ -374,11 +477,16 @@ print_summary() {
     echo " 状态汇总"
     echo "=================================================="
 
-    # vllm
+    # vllm + torch cuda
     if venv_has_package "${VLLM_VENV}" "vllm"; then
-        local v
+        local v torch_cuda
         v="$("${VLLM_VENV}/bin/python" -c "import vllm; print(vllm.__version__)" 2>/dev/null || echo '?')"
-        ok "vllm ${v}  @ ${VLLM_VENV}"
+        torch_cuda="$("${VLLM_VENV}/bin/python" -c "import torch; print(torch.version.cuda)" 2>/dev/null || echo '?')"
+        if [[ "${torch_cuda}" == 13.* ]]; then
+            ok "vllm ${v}  (torch cuda ${torch_cuda})  @ ${VLLM_VENV}"
+        else
+            err "vllm ${v},但 torch cuda ${torch_cuda} ≠ 13.x"
+        fi
     else
         err "vllm 未安装"
     fi
@@ -399,9 +507,8 @@ print_summary() {
     # systemd
     for svc in vllm.service vllm-playground.service; do
         if [[ -f "/etc/systemd/system/${svc}" ]]; then
-            local state
+            local state enabled
             state="$(systemctl is-active "${svc}" 2>/dev/null || echo 'inactive')"
-            local enabled
             enabled="$(systemctl is-enabled "${svc}" 2>/dev/null || echo 'disabled')"
             ok "${svc}: ${state} / ${enabled}"
         else
@@ -423,7 +530,6 @@ print_summary() {
 }
 
 # ==================== 主流程 ====================
-# 初始化日志文件
 mkdir -p "$(dirname "${INSTALL_LOG}")"
 {
     echo
@@ -436,8 +542,9 @@ mkdir -p "$(dirname "${INSTALL_LOG}")"
 print_header
 check_prereqs
 ensure_opt_dirs
-install_venv "${VLLM_VENV}"       "vllm"            "vLLM"
-install_venv "${PLAYGROUND_VENV}" "vllm-playground" "vllm-playground"
+install_vllm_venv
+install_hf_transfer
+install_playground_venv
 write_vllm_conf
 write_vllm_start
 setup_systemd
