@@ -1,0 +1,20 @@
+[Unit]
+Description=vLLM OpenAI-compatible server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<Custom_User>
+Group=<Custom_User>
+Environment=HOME=/home/<Custom_User>
+TimeoutStartSec=1800
+Restart=on-failure
+RestartSec=10
+ExecStart=/home/<Custom_User>/.vllm-env/vllm-start.sh
+StandardOutput=append:/opt/vllm/logs/vllm.log
+StandardError=append:/opt/vllm/logs/vllm.err.log
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target

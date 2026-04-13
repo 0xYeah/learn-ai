@@ -2,9 +2,10 @@
 
 - [1. 读源码备忘](#1-读源码备忘)
 - [2. 对比](#2-对比)
-  - [2.1. sdfs](#21-sdfs)
 - [3. 工具](#3-工具)
-  - [3.1. everything-claude-code(ECC-Tool)](#31-everything-claude-codeecc-tool)
+    - [3.1. everything-claude-code(ECC-Tool)](#31-everything-claude-codeecc-tool)
+- [4. vLLM](#4-vllm)
+    - [4.1. 在`NVIDIA-DGX-Spark`上安装vLLM](#41-在nvidia-dgx-spark上安装vllm)
 
 <!-- /TOC -->
 
@@ -24,9 +25,11 @@ Learning AI Memo
 |[GoClaw VS OpenFang](./ai_tools/goclaw-vs-openfang.md)||2026-03-09|
 |[OopenClaw VS GoClaw VS OpenFang](./ai_tools/openclaw-vs-goclaw-vs-openfang.md)||2026-03-09|
 
-## 2.1. sdfs
-
 # 3. 工具
 ## 3.1. everything-claude-code(ECC-Tool)
 > 基于Claude code 的万能开发插件。
 * [ECC-Tool](./ai_tools/everything-claude-code/ecc.md)
+
+# 4. vLLM
+## 4.1. 在`NVIDIA-DGX-Spark`上安装vLLM
+[在NVIDIA-DGX-Spark上安装vLLM](./vllm/dgx-spark/dgx-spark-vllm-setup.md)

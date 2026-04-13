@@ -1,0 +1,18 @@
+[Unit]
+Description=vLLM Playground Web UI
+After=network-online.target vllm.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<Custom_User>
+Group=<Custom_User>
+Environment=HOME=/home/<Custom_User>
+Restart=on-failure
+RestartSec=10
+ExecStart=/bin/bash -lc 'source ~/.vllm-playground-env/bin/activate && exec vllm-playground --port 65302'
+StandardOutput=append:/opt/vllm/logs/playground.log
+StandardError=append:/opt/vllm/logs/playground.err.log
+
+[Install]
+WantedBy=multi-user.target
