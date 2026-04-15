@@ -180,16 +180,16 @@ Skills 仍可通过 `/skill-name` 解析。
 
 ---
 
-## 针对你使用场景的几点说明
+## 针对使用场景的几点说明
 
-结合你在搭建 AI 推理栈（vLLM + open-webui）和做 agent 编排的背景，几个可能用得上的点：
+结合在搭建`AI`推理栈`LLM`和做`agent`编排的背景，几个可能用得上的点：
 
 1. **`--bare` + `--mcp-config` + `--settings`** 组合，非常适合跑在 CI 或 sandbox 里的脚本化场景，可以完全避开 keychain 和 CLAUDE.md 自动发现的副作用，用 `ANTHROPIC_API_KEY` 做干净的认证。
 
-2. **`-p` + `--output-format stream-json` + `--include-partial-messages`** 适合接到你自己的 LLM client 或 agent orchestrator 里做流式处理。
+2. **`-p` + `--output-format stream-json` + `--include-partial-messages`** 适合接到自己的 LLM client 或 agent orchestrator 里做流式处理。
 
 3. **`--max-budget-usd`** 在跑批量 agent 任务时可以兜底防止失控。
 
 4. **`--agents`** 支持直接从命令行 JSON 注入 agent 定义，做一次性特化 agent 很方便，不用落盘。
 
-5. **`--strict-mcp-config`** 在做 MCP server 开发测试时很有用，可以隔离掉全局已连接的其他 MCP，只用你当前在调试的那个。
+5. **`--strict-mcp-config`** 在做 MCP server 开发测试时很有用，可以隔离掉全局已连接的其他 MCP，只用当前在调试的那个。
