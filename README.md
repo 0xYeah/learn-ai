@@ -4,6 +4,7 @@
 - [2. 对比](#2-对比)
 - [3. 工具](#3-工具)
     - [3.1. everything-claude-code(ECC-Tool)](#31-everything-claude-codeecc-tool)
+    - [3.2. laude-code_v2.1.108_中文文档](#32-laude-code_v21108_中文文档)
 - [4. vLLM](#4-vllm)
     - [4.1. 在`NVIDIA-DGX-Spark`上安装vLLM](#41-在nvidia-dgx-spark上安装vllm)
 
@@ -29,6 +30,9 @@ Learning AI Memo
 ## 3.1. everything-claude-code(ECC-Tool)
 > 基于Claude code 的万能开发插件。
 * [ECC-Tool](./ai_tools/everything-claude-code/ecc.md)
+
+## 3.2. laude-code_v2.1.108_中文文档
+[laude-code_v2.1.108_中文文档](./ai_tools/claude-code/claude-code-v2.1.108-cn.md)
 
 # 4. vLLM
 ## 4.1. 在`NVIDIA-DGX-Spark`上安装vLLM
